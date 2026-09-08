@@ -1,0 +1,45 @@
+name: Build helix-steel (cargo xtask)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout mattwparas/helix (steel-event-system)
+        uses: actions/checkout@v4
+        with:
+          repository: mattwparas/helix
+          ref: steel-event-system
+          submodules: recursive
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry and build
+        uses: Swatinem/rust-cache@v2
+
+      - name: Snapshot cargo bin dir
+        run: ls ~/.cargo/bin > /tmp/before.txt
+
+      - name: Build and install via xtask
+        run: cargo xtask steel
+
+      - name: Collect new binaries
+        run: |
+          mkdir -p artifact/bin
+          ls ~/.cargo/bin > /tmp/after.txt
+          comm -13 /tmp/before.txt /tmp/after.txt | while read -r bin; do
+            cp "$HOME/.cargo/bin/$bin" artifact/bin/
+          done
+          ls -la artifact/bin
+          if [ -d runtime ]; then
+            cp -r runtime artifact/
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: helix-steel-${{ github.run_id }}
+          path: artifact/*
