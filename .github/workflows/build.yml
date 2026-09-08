@@ -1,4 +1,4 @@
-name: Build helix-steel-git (yay)
+name: Build helix-steel-git
 
 on:
   workflow_dispatch:
@@ -14,6 +14,10 @@ jobs:
           pacman -Sy --noconfirm archlinux-keyring
           pacman -Syu --noconfirm
           pacman -S --needed --noconfirm base-devel git sudo rust
+
+      - name: Skip debug package (smaller, faster)
+        run: |
+          sed -i 's/^OPTIONS=.*/OPTIONS=(strip !debug)/' /etc/makepkg.conf
 
       - name: Create build user
         run: |
@@ -41,8 +45,9 @@ jobs:
       - name: Copy package
         run: |
           mkdir -p /github/workspace/packages
-          find /home/builder -maxdepth 3 -name "helix-steel-git*.pkg.tar.zst" \
+          find /home/builder/.cache/yay -name "helix-steel-git*.pkg.tar.zst" \
             -exec cp {} /github/workspace/packages/ \;
+          ls -la /github/workspace/packages
 
       - name: Upload package
         uses: actions/upload-artifact@v4
