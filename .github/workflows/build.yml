@@ -1,4 +1,4 @@
-name: Build helix-steel-git
+name: Build helix-steel-git(yay)
 
 on:
   workflow_dispatch:
