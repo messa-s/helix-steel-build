@@ -1,8 +1,6 @@
-name: Build helix-steel-git (paru)
-
+name: Build helix-steel-git (yay)
 on:
   workflow_dispatch:
-
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -14,46 +12,39 @@ jobs:
           pacman -Sy --noconfirm archlinux-keyring
           pacman -Syu --noconfirm
           pacman -S --needed --noconfirm base-devel git sudo rust
-
       - name: Skip debug package (smaller, faster)
         run: |
           sed -i 's/^OPTIONS=.*/OPTIONS=(strip !debug)/' /etc/makepkg.conf
-
       - name: Create build user
         run: |
           useradd -m builder
           echo "builder ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/builder
           chmod 0440 /etc/sudoers.d/builder
           chown -R builder:builder /home/builder
-
-      - name: Bootstrap paru
+      - name: Bootstrap yay
         run: |
           su builder -c '
             cd /home/builder
-            git clone https://aur.archlinux.org/paru-bin.git
-            cd paru-bin
+            git clone https://aur.archlinux.org/yay-bin.git
+            cd yay-bin
             makepkg -si --noconfirm
           '
-
-      - name: Snapshot paru cache
-        run: find /home/builder/.cache/paru -name "*.pkg.tar.zst" > /tmp/before.txt 2>/dev/null || true
-
-      - name: Build helix-steel-git with paru
+      - name: Snapshot yay cache
+        run: find /home/builder/.cache/yay -name "*.pkg.tar.zst" > /tmp/before.txt 2>/dev/null || true
+      - name: Build helix-steel-git with yay
         run: |
           su builder -c '
             cd /home/builder
-            paru -S --noconfirm --skipreview --removemake helix-steel-git
+            yay -S --noconfirm --removemake helix-steel-git
           '
-
       - name: Collect new package
         run: |
           mkdir -p artifact
-          find /home/builder/.cache/paru -name "*.pkg.tar.zst" > /tmp/after.txt
+          find /home/builder/.cache/yay -name "*.pkg.tar.zst" > /tmp/after.txt
           comm -13 /tmp/before.txt /tmp/after.txt | while read -r pkg; do
             cp "$pkg" artifact/
           done
           ls -la artifact
-
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
