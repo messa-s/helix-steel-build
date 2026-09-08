@@ -1,4 +1,4 @@
-name: Build helix-steel-git(yay)
+name: Build helix-steel-git (paru)
 
 on:
   workflow_dispatch:
@@ -26,31 +26,36 @@ jobs:
           chmod 0440 /etc/sudoers.d/builder
           chown -R builder:builder /home/builder
 
-      - name: Bootstrap yay
+      - name: Bootstrap paru
         run: |
           su builder -c '
             cd /home/builder
-            git clone https://aur.archlinux.org/yay-bin.git
-            cd yay-bin
+            git clone https://aur.archlinux.org/paru-bin.git
+            cd paru-bin
             makepkg -si --noconfirm
           '
 
-      - name: Build helix-steel-git with yay
+      - name: Snapshot paru cache
+        run: find /home/builder/.cache/paru -name "*.pkg.tar.zst" > /tmp/before.txt 2>/dev/null || true
+
+      - name: Build helix-steel-git with paru
         run: |
           su builder -c '
             cd /home/builder
-            yay -S --noconfirm --removemake helix-steel-git
+            paru -S --noconfirm --skipreview --removemake helix-steel-git
           '
 
-      - name: Copy package
+      - name: Collect new package
         run: |
-          mkdir -p /github/workspace/packages
-          find /home/builder/.cache/yay -name "helix-steel-git*.pkg.tar.zst" \
-            -exec cp {} /github/workspace/packages/ \;
-          ls -la /github/workspace/packages
+          mkdir -p artifact
+          find /home/builder/.cache/paru -name "*.pkg.tar.zst" > /tmp/after.txt
+          comm -13 /tmp/before.txt /tmp/after.txt | while read -r pkg; do
+            cp "$pkg" artifact/
+          done
+          ls -la artifact
 
-      - name: Upload package
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: helix-steel-git
-          path: packages/*.pkg.tar.zst
+          name: helix-steel-git-${{ github.run_id }}
+          path: artifact/*
