@@ -1,4 +1,4 @@
-name: Build helix-steel-git (yay)
+name: Build helix-git (yay)
 on:
   workflow_dispatch:
 jobs:
@@ -31,11 +31,11 @@ jobs:
           '
       - name: Snapshot yay cache
         run: find /home/builder/.cache/yay -name "*.pkg.tar.zst" > /tmp/before.txt 2>/dev/null || true
-      - name: Build helix-steel-git with yay
+      - name: Build helix-git with yay
         run: |
           su builder -c '
             cd /home/builder
-            yay -S --noconfirm --removemake helix-steel-git
+            yay -S --noconfirm --removemake helix-git
           '
       - name: Collect new package
         run: |
@@ -48,5 +48,5 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: helix-steel-git-${{ github.run_id }}
+          name: helix-git-${{ github.run_id }}
           path: artifact/*
