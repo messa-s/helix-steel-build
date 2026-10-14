@@ -1,0 +1,90 @@
+
+name: Build Aseprite (Arch Linux)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: archlinux:latest
+
+    steps:
+      - name: Update Arch Linux and install dependencies
+        run: |
+          pacman -Sy --noconfirm archlinux-keyring
+          pacman -Syu --noconfirm
+          pacman -S --needed --noconfirm \
+            base-devel git cmake ninja clang unzip \
+            curl jq libx11 libxcursor libxi libxrandr \
+            mesa-libgl fontconfig libwebp libjpeg-turbo \
+            libpng freetype2
+
+      - name: Get Aseprite source
+        run: |
+          git clone --recursive \
+            https://github.com/aseprite/aseprite.git
+          cd aseprite
+          git submodule update --init --recursive
+
+      - name: Download matching Skia library
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/deps/skia"
+
+          URL=$(curl -fsSL \
+            https://api.github.com/repos/aseprite/skia/releases \
+            | jq -r '
+                [.[] | select(.tag_name | startswith("m124"))]
+                | first
+                | .assets[]
+                | select(.name == "Skia-Linux-Release-x64.zip")
+                | .browser_download_url
+              ')
+
+          if [ -z "$URL" ] || [ "$URL" = "null" ]; then
+            echo "Could not find the matching Linux Skia release."
+            exit 1
+          fi
+
+          curl -fL "$URL" -o /tmp/skia.zip
+          unzip -q /tmp/skia.zip -d "$GITHUB_WORKSPACE/deps/skia"
+
+          test -f "$GITHUB_WORKSPACE/deps/skia/out/Release-x64/libskia.a"
+
+      - name: Configure Aseprite
+        working-directory: aseprite
+        env:
+          CC: clang
+          CXX: clang++
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_CXX_FLAGS:STRING=-stdlib=libstdc++ \
+            -DCMAKE_EXE_LINKER_FLAGS:STRING=-stdlib=libstdc++ \
+            -DLAF_BACKEND=skia \
+            -DSKIA_DIR="$GITHUB_WORKSPACE/deps/skia" \
+            -DSKIA_LIBRARY_DIR="$GITHUB_WORKSPACE/deps/skia/out/Release-x64" \
+            -DSKIA_LIBRARY="$GITHUB_WORKSPACE/deps/skia/out/Release-x64/libskia.a"
+
+      - name: Build Aseprite
+        run: |
+          cmake --build aseprite/build --target aseprite --parallel 2
+          test -f aseprite/build/bin/aseprite
+
+      - name: Package executable
+        run: |
+          mkdir -p artifact
+          cp aseprite/build/bin/aseprite artifact/
+          tar -czf aseprite-linux-x86_64.tar.gz -C artifact aseprite
+
+      - name: Upload executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: aseprite-linux-x86_64
+          path: aseprite-linux-x86_64.tar.gz
+          if-no-files-found: error
+          retention-days: 14
