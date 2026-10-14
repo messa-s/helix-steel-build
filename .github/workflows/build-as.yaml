@@ -1,5 +1,5 @@
 
-name: Build Aseprite (Arch Linux)
+name: Build Aseprite (yay)
 
 on:
   workflow_dispatch:
@@ -14,77 +14,65 @@ jobs:
       image: archlinux:latest
 
     steps:
-      - name: Update Arch Linux and install dependencies
+      - name: Refresh keyring and update
         run: |
           pacman -Sy --noconfirm archlinux-keyring
           pacman -Syu --noconfirm
-          pacman -S --needed --noconfirm \
-            base-devel git cmake ninja clang unzip \
-            curl jq libx11 libxcursor libxi libxrandr \
-            mesa-libgl fontconfig libwebp libjpeg-turbo \
-            libpng freetype2
+          pacman -S --needed --noconfirm base-devel git sudo
 
-      - name: Get Aseprite source
+      - name: Skip debug package (smaller, faster)
         run: |
-          git clone --recursive \
-            https://github.com/aseprite/aseprite.git
-          cd aseprite
-          git submodule update --init --recursive
+          sed -i 's/^OPTIONS=.*/OPTIONS=(strip !debug)/' /etc/makepkg.conf
 
-      - name: Download matching Skia library
+      - name: Create build user
         run: |
-          mkdir -p "$GITHUB_WORKSPACE/deps/skia"
+          useradd -m builder
+          echo "builder ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/builder
+          chmod 0440 /etc/sudoers.d/builder
+          chown -R builder:builder /home/builder
 
-          URL=$(curl -fsSL \
-            https://api.github.com/repos/aseprite/skia/releases \
-            | jq -r '
-                [.[] | select(.tag_name | startswith("m124"))]
-                | first
-                | .assets[]
-                | select(.name == "Skia-Linux-Release-x64.zip")
-                | .browser_download_url
-              ')
+      - name: Bootstrap yay
+        run: |
+          su builder -c '
+            cd /home/builder
+            git clone https://aur.archlinux.org/yay-bin.git
+            cd yay-bin
+            makepkg -si --noconfirm
+          '
 
-          if [ -z "$URL" ] || [ "$URL" = "null" ]; then
-            echo "Could not find the matching Linux Skia release."
+      - name: Snapshot yay cache
+        run: |
+          find /home/builder/.cache/yay -name "*.pkg.tar.zst" \
+            > /tmp/before.txt 2>/dev/null || true
+
+      - name: Build Aseprite with yay
+        run: |
+          su builder -c '
+            yay -S --noconfirm --removemake aseprite
+          '
+
+      - name: Collect package
+        run: |
+          mkdir -p artifact
+          find /home/builder/.cache/yay -name "*.pkg.tar.zst" \
+            > /tmp/after.txt
+
+          comm -13 /tmp/before.txt /tmp/after.txt |
+            while read -r pkg; do
+              cp "$pkg" artifact/
+            done
+
+          if [ -z "$(ls -A artifact)" ]; then
+            echo "No new package found in yay cache."
             exit 1
           fi
 
-          curl -fL "$URL" -o /tmp/skia.zip
-          unzip -q /tmp/skia.zip -d "$GITHUB_WORKSPACE/deps/skia"
+          ls -lh artifact
 
-          test -f "$GITHUB_WORKSPACE/deps/skia/out/Release-x64/libskia.a"
-
-      - name: Configure Aseprite
-        working-directory: aseprite
-        env:
-          CC: clang
-          CXX: clang++
-        run: |
-          cmake -S . -B build -G Ninja \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_CXX_FLAGS:STRING=-stdlib=libstdc++ \
-            -DCMAKE_EXE_LINKER_FLAGS:STRING=-stdlib=libstdc++ \
-            -DLAF_BACKEND=skia \
-            -DSKIA_DIR="$GITHUB_WORKSPACE/deps/skia" \
-            -DSKIA_LIBRARY_DIR="$GITHUB_WORKSPACE/deps/skia/out/Release-x64" \
-            -DSKIA_LIBRARY="$GITHUB_WORKSPACE/deps/skia/out/Release-x64/libskia.a"
-
-      - name: Build Aseprite
-        run: |
-          cmake --build aseprite/build --target aseprite --parallel 2
-          test -f aseprite/build/bin/aseprite
-
-      - name: Package executable
-        run: |
-          mkdir -p artifact
-          cp aseprite/build/bin/aseprite artifact/
-          tar -czf aseprite-linux-x86_64.tar.gz -C artifact aseprite
-
-      - name: Upload executable
+      - name: Upload package
         uses: actions/upload-artifact@v4
         with:
-          name: aseprite-linux-x86_64
-          path: aseprite-linux-x86_64.tar.gz
+          name: aseprite-archlinux-${{ github.run_id }}
+          path: artifact/*.pkg.tar.zst
           if-no-files-found: error
           retention-days: 14
