@@ -1,0 +1,117 @@
+
+name: Build Wine d2d1 (Arch Linux)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: archlinux:latest
+
+    steps:
+      - name: Update system and install dependencies
+        run: |
+          pacman -Sy --noconfirm archlinux-keyring
+          pacman -Syu --noconfirm
+
+          pacman -S --needed --noconfirm \
+            base-devel \
+            git \
+            gcc \
+            gcc-libs \
+            mingw-w64-gcc \
+            pkgconf \
+            python \
+            perl \
+            flex \
+            bison \
+            gettext \
+            fontconfig \
+            freetype2 \
+            gnutls \
+            libunwind \
+            libx11 \
+            libxcomposite \
+            libxcursor \
+            libxfixes \
+            libxi \
+            libxrandr \
+            libxrender \
+            libxext \
+            libxinerama \
+            libxkbcommon \
+            libxkbregistry \
+            wayland \
+            wayland-protocols \
+            libegl \
+            mesa \
+            libgl \
+            alsa-lib \
+            libpulse \
+            dbus \
+            gstreamer \
+            gst-plugins-base-libs \
+            sdl2 \
+            libudev \
+            vulkan-headers \
+            vulkan-icd-loader \
+            zstd \
+            perl-xml-parser
+
+      - name: Clone Wine d2d1 fork
+        run: |
+          git clone \
+            --branch d2d1-dcomp-11.0 \
+            --depth 1 \
+            https://github.com/giang17/wine.git \
+            wine
+
+      - name: Configure Wine
+        working-directory: wine
+        run: |
+          ./configure \
+            --prefix=/opt/wine-d2d1 \
+            --enable-archs=i386,x86_64
+
+      - name: Build Wine
+        working-directory: wine
+        run: |
+          make -j2
+
+      - name: Install Wine
+        working-directory: wine
+        run: |
+          make install
+
+      - name: Verify installation
+        run: |
+          test -x /opt/wine-d2d1/bin/wine
+          test -f /opt/wine-d2d1/share/wine/wine.inf
+
+          /opt/wine-d2d1/bin/wine --version
+
+          echo "Wine installation verified."
+          du -sh /opt/wine-d2d1
+
+      - name: Package Wine installation
+        run: |
+          mkdir -p artifact
+
+          tar --zstd -cf \
+            artifact/wine-d2d1-x86_64.tar.zst \
+            -C /opt wine-d2d1
+
+          ls -lh artifact/
+
+      - name: Upload Wine build
+        uses: actions/upload-artifact@v4
+        with:
+          name: wine-d2d1-11.0-archlinux
+          path: artifact/wine-d2d1-x86_64.tar.zst
+          if-no-files-found: error
+          retention-days: 14
