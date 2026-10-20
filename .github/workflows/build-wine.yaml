@@ -1,4 +1,3 @@
-
 name: Build Wine d2d1 (Arch Linux)
 
 on:
@@ -10,15 +9,17 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 180
     container:
       image: archlinux:latest
 
     steps:
       - name: Initialize keyring and update system
         run: |
+          # If pacman fails with "restricting filesystem access failed"
+          # (Landlock), add --disable-sandbox to the pacman commands below.
           pacman-key --init
           pacman-key --populate archlinux
-
           pacman -Sy --noconfirm archlinux-keyring
           pacman -Syu --noconfirm
 
@@ -26,16 +27,12 @@ jobs:
         run: |
           pacman -S --needed --noconfirm \
             base-devel \
+            linux-api-headers \
             git \
-            gcc \
-            gcc-libs \
             mingw-w64-gcc \
-            pkgconf \
             python \
             perl \
-            flex \
-            bison \
-            gettext \
+            perl-xml-parser \
             fontconfig \
             freetype2 \
             gnutls \
@@ -54,9 +51,8 @@ jobs:
             systemd-libs \
             wayland \
             wayland-protocols \
-            libegl \
+            libglvnd \
             mesa \
-            libgl \
             alsa-lib \
             libpulse \
             dbus \
@@ -65,8 +61,7 @@ jobs:
             sdl2 \
             vulkan-headers \
             vulkan-icd-loader \
-            zstd \
-            perl-xml-parser
+            zstd
 
       - name: Clone Wine d2d1 fork
         run: |
@@ -78,30 +73,31 @@ jobs:
 
       - name: Show source revision
         working-directory: wine
-        run: |
-          git log -1 --oneline
+        run: git log -1 --oneline
 
       - name: Configure Wine
         working-directory: wine
         run: |
+          test -f /usr/include/linux/ntsync.h || echo "WARNING: ntsync.h missing, ntsync support will be disabled"
           ./configure \
             --prefix=/opt/wine-d2d1 \
             --enable-archs=i386,x86_64
+          grep HAVE_LINUX_NTSYNC_H include/config.h || echo "WARNING: ntsync not detected"
 
       - name: Build Wine
         working-directory: wine
-        run: |
-          make -j2
+        run: make -j$(nproc)
 
       - name: Install Wine
         working-directory: wine
-        run: |
-          make install
+        run: make install
 
       - name: Verify installation
         run: |
           test -x /opt/wine-d2d1/bin/wine
           test -f /opt/wine-d2d1/share/wine/wine.inf
+          test -d /opt/wine-d2d1/lib/wine/i386-windows
+          test -d /opt/wine-d2d1/lib/wine/x86_64-windows
 
           /opt/wine-d2d1/bin/wine --version
 
@@ -111,11 +107,7 @@ jobs:
       - name: Package Wine installation
         run: |
           mkdir -p artifact
-
-          tar --zstd -cf \
-            artifact/wine-d2d1-x86_64.tar.zst \
-            -C /opt wine-d2d1
-
+          tar --zstd -cf artifact/wine-d2d1-x86_64.tar.zst -C /opt wine-d2d1
           ls -lh artifact/
 
       - name: Upload Wine build
